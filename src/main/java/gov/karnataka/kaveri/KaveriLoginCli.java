@@ -1,6 +1,5 @@
 package gov.karnataka.kaveri;
 
-import java.io.Console;
 import java.time.Duration;
 import java.util.List;
 import java.util.Scanner;
@@ -17,7 +16,7 @@ import org.openqa.selenium.support.ui.Select;
 
 public final class KaveriLoginCli {
     private static final String PORTAL_URL = "https://kaveri.karnataka.gov.in/";
-    private static final Duration ELEMENT_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration ELEMENT_TIMEOUT = Duration.ofSeconds(45);
     private static final int PREPARATION_WORKERS = 4;
     private static final List<String> PROPERTY_NAMES = List.of(
         "Satishchandra K R",
@@ -35,54 +34,29 @@ public final class KaveriLoginCli {
     }
 
     public static void main(String[] args) {
-        Console console = System.console();
-        if (console == null) {
-            System.err.println("Run this program from a real terminal so the password can be entered securely.");
-            System.exit(1);
-        }
-
-        try (WebDriver driver = new ChromeDriver(); Scanner scanner = new Scanner(System.in)) {
+        WebDriver driver = new ChromeDriver();
+        try (Scanner scanner = new Scanner(System.in)) {
             driver.manage().window().maximize();
             driver.get(PORTAL_URL);
 
             System.out.println("Chrome has opened Kaveri Online Services.");
-            System.out.println("Navigate to its login page, then press Enter when the username and password fields are visible.");
+            System.out.println("Complete username, password, CAPTCHA, and OTP login in Chrome.");
+            System.out.println("After the dashboard is visible, return here and press Enter to continue the EC search.");
             scanner.nextLine();
 
-            String username = console.readLine("Username: ");
-            char[] password = console.readPassword("Password: ");
-            try {
-                fill(driver, "kaveri.usernameSelector", List.of(
-                    "input[name='username']", "input[name='userName']", "input[name='userid']",
-                    "input[name='userId']", "input[type='email']", "#username", "#userName", "#userid"), username);
-                fill(driver, "kaveri.passwordSelector", List.of(
-                    "input[type='password']", "input[name='password']", "#password"), new String(password));
-            } finally {
-                java.util.Arrays.fill(password, '\0');
-            }
-
-            System.out.println("Complete any CAPTCHA in Chrome. Press Enter to submit your credentials and request the OTP.");
-            scanner.nextLine();
-            click(driver, "kaveri.credentialSubmitSelector", List.of(
-                "button[type='submit']", "input[type='submit']", "button[name='login']", "#login"));
-
-            String otp = console.readLine("OTP: ");
-            fill(driver, "kaveri.otpSelector", List.of(
-                "input[name='otp']", "input[name='OTP']", "input[autocomplete='one-time-code']", "#otp", "#OTP"), otp);
-            click(driver, "kaveri.otpSubmitSelector", List.of(
-                "button[type='submit']", "input[type='submit']", "button[name='verify']", "#verify"));
-
-            clickStartNewApplication(driver);
-            clickOnlineEc(driver);
-            clickEcPrerequisiteContinue(driver);
-            clickAfter2004(driver);
-            clickProceed(driver);
-            searchTumkurPropertyNames(driver, scanner);
+            runStep("Start a New Application", () -> clickStartNewApplication(driver));
+            runStep("Encumbrance Certificate (Online EC)", () -> clickOnlineEc(driver));
+            runStep("EC prerequisite Continue", () -> clickEcPrerequisiteContinue(driver));
+            runStep("After 01/01/2004", () -> clickAfter2004(driver));
+            runStep("EC search Proceed", () -> clickProceed(driver));
+            runStep("property-name search", () -> searchTumkurPropertyNames(driver, scanner));
             System.out.println("The requested name searches have been submitted. Press Enter to close the browser.");
             scanner.nextLine();
-        } catch (TimeoutException exception) {
-            System.err.println("Could not find a required login control. See the README for selector overrides.");
+        } catch (IllegalStateException exception) {
+            System.err.println(exception.getMessage());
             System.exit(2);
+        } finally {
+            driver.quit();
         }
     }
 
@@ -94,6 +68,15 @@ public final class KaveriLoginCli {
 
     private static void click(WebDriver driver, String property, List<String> defaults) {
         waitForFirst(driver, property, defaults).click();
+    }
+
+    private static void runStep(String description, Runnable action) {
+        try {
+            action.run();
+        } catch (TimeoutException exception) {
+            throw new IllegalStateException(
+                "Timed out waiting for " + description + ". See the README for selector overrides.", exception);
+        }
     }
 
     private static void searchTumkurPropertyNames(WebDriver driver, Scanner scanner) {
@@ -192,7 +175,8 @@ public final class KaveriLoginCli {
 
         WebDriverWait wait = new WebDriverWait(driver, ELEMENT_TIMEOUT);
         wait.until(ignored -> driver.findElements(By.xpath(
-                "//*[self::button or @role='button'][contains(normalize-space(), 'START A NEW APPLICATION')]")).stream()
+                "//*[self::button or @role='button'][contains(translate(normalize-space(.), "
+                    + "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'START A NEW APPLICATION')]")).stream()
             .filter(WebElement::isDisplayed)
             .findFirst()
             .map(element -> {
